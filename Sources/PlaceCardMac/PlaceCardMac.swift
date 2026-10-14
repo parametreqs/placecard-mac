@@ -79,6 +79,11 @@ enum Terminator: String, CaseIterable, Identifiable {
         trusted = AXIsProcessTrustedWithOptions(options)
     }
     func render(_ card: Card) -> String? { try? transform.render(card, source: format) }
+    var registrationPreview: String {
+        guard let pending else { return "Waiting for reader" }
+        do { return try pending.registrationNumber() }
+        catch { return "Legacy decimal unavailable" }
+    }
     var preview: String { latest.map { card in (try? transform.render(card, source: format)) ?? "Format unavailable" } ?? "—" }
     var formatError: String? {
         guard let latest else { return nil }
@@ -111,8 +116,8 @@ enum Terminator: String, CaseIterable, Identifiable {
         guard cloudEnabled, !cloudBusy, CardRegistry.validPrinted(printed), let pending else { return }
         let digits = printed
         let value: String
-        do { value = try transform.render(pending, source: format) }
-        catch { cloudStatus = error.localizedDescription; return }
+        do { value = try pending.registrationNumber() }
+        catch { cloudStatus = error.localizedDescription; cloudEnabled = false; return }
         cloudBusy = true; cloudStatus = "Checking duplicates in Nextcloud…"
         Task {
             do {
@@ -159,14 +164,14 @@ enum Terminator: String, CaseIterable, Identifiable {
         case .message(let message): appendLog(message)
         case .card(let card):
             latest = card
-            let value: String
-            do { value = try transform.render(card, source: format) }
-            catch { status = error.localizedDescription; appendLog(status); return }
-            appendLog("\(card.kind): \(value)")
             if cloudEnabled {
                 guard !cloudBusy else { appendLog("Scan skipped while a workbook update is in progress."); return }
                 pending = card; cloudStatus = "Card ready. Enter its four printed digits."; scheduleSave(); return
             }
+            let value: String
+            do { value = try transform.render(card, source: format) }
+            catch { status = error.localizedDescription; appendLog(status); return }
+            appendLog("\(card.kind): \(value)")
             guard typing else { return }
             guard AXIsProcessTrusted() else { typing = false; status = "Enable Accessibility permission to type card numbers."; return }
             guard let target = NSWorkspace.shared.frontmostApplication,
@@ -269,8 +274,8 @@ struct MainView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Label(model.pending == nil ? "Scan a card" : "Card ready", systemImage: model.pending == nil ? "wave.3.right" : "checkmark.circle.fill")
                                 .foregroundStyle(model.pending == nil ? Color.secondary : Color.green)
-                            Text(model.pending.flatMap { model.render($0) } ?? "Waiting for reader").font(.system(.body, design: .monospaced)).textSelection(.enabled)
-                            Text("Column A: printed number\nColumn B: scanned number").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text(model.registrationPreview).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                            Text("Column A: printed number\nColumn B: legacy decimal").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     if !model.printed.isEmpty && !CardRegistry.validPrinted(model.printed) { Text("Enter exactly four digits, including any leading zero.").font(.caption).foregroundStyle(.orange) }
@@ -287,7 +292,7 @@ struct MainView: View {
                     Picker("Source", selection: $model.format) { ForEach(OutputFormat.allCases) { Text($0.rawValue).tag($0) } }
                     Picker("Output", selection: $model.transform.notation) { ForEach(NumberNotation.allCases) { Text($0.rawValue).tag($0) } }
                     TextField("Byte positions", text: $model.transform.byteOrder, prompt: Text("1,2,3 or 3,2,1"))
-                    Text(model.format == .automaticMifare ? "Four-byte Mifare stays hex; seven-byte Mifare uses Windows decimal. No format switching needed." : "Choose a hex source to select or rearrange bytes. Positions start at 1; leave blank to use all bytes.").font(.caption).foregroundStyle(.secondary)
+                    Text(model.format == .automaticMifare ? "Four-byte Mifare stays hex; seven-byte Mifare uses Windows decimal. No format switching needed." : model.format == .registerMifare ? "Matches the legacy register for four- and seven-byte Mifare. Uses three UID bytes; duplicate values are blocked." : "Choose a hex source to select or rearrange bytes. Positions start at 1; leave blank to use all bytes.").font(.caption).foregroundStyle(.secondary)
                     TextField("Calculation", text: $model.transform.expression, prompt: Text("x"))
                     Text("x is the source number. Use + − * / %, & | ^, << >>, ~ and parentheses. Example: (x & 0xFFFFFFFF) + 8. Integer arithmetic, up to 64 bits.").font(.caption).foregroundStyle(.secondary)
                     Stepper("Minimum digits: \(model.transform.width)", value: $model.transform.width, in: 0...64)

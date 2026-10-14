@@ -13,9 +13,31 @@ public struct Card: Equatable {
         // RD_ALL's seven-byte terminal representation ends with UID0, UID1, UID2.
         // Legacy CL1 readers report [CT=0x88, UID0, UID1, UID2] as a little-endian UInt32.
         // NXP AN10927 describes the cascade marker; this is the compatibility format validated against Windows PlaceCard.
+        return Self.cascadeDecimal(firstThree)
+    }
+
+    /// The register's established compatibility rule. For four-byte frames this
+    /// intentionally retains only the first three reported bytes, then adds 0x88.
+    /// It is not a decimal conversion of the complete four-byte UID.
+    public var registerMifareDecimal: String? {
+        guard kind.lowercased().hasPrefix("mifare") else { return nil }
+        if reportedHex.count == 14 { return legacyMifareDecimal }
+        guard reportedHex.count == 8,
+              let firstThree = UInt32(reportedHex.prefix(6), radix: 16) else { return nil }
+        return Self.cascadeDecimal(firstThree)
+    }
+    private static func cascadeDecimal(_ firstThree: UInt32) -> String {
         let value = ((firstThree & 0xff) << 24) | ((firstThree & 0xff00) << 8)
             | ((firstThree >> 16) << 8) | 0x88
         return String(value)
+    }
+
+    /// Registration is independent of display/typing adjustments.
+    public func registrationNumber() throws -> String {
+        guard let value = registerMifareDecimal else {
+            throw CardError("Legacy decimal registration supports four- and seven-byte Mifare cards. No workbook changes were made.")
+        }
+        return value
     }
 
     public static func parse(_ line: String) -> Card? {
@@ -35,6 +57,7 @@ public enum OutputFormat: String, CaseIterable, Identifiable {
     case wiegand = "Wiegand: 000,00000"
     case decimal24 = "Wiegand: decimal (24 bits)"
     case windowsMifare = "Mifare 7-byte: Windows decimal"
+    case registerMifare = "Mifare 4/7-byte: Register decimal"
     case reportedHex = "Hex: as reported by reader"
     case reversedHex = "Hex: reversed byte order"
     public var id: String { rawValue }
@@ -53,6 +76,7 @@ public enum OutputFormat: String, CaseIterable, Identifiable {
         case .wiegand: return card.wiegand
         case .decimal24: return card.decimal24
         case .windowsMifare: return card.legacyMifareDecimal
+        case .registerMifare: return card.registerMifareDecimal
         case .reportedHex: return card.reportedHex
         case .reversedHex:
             let chars = Array(card.reportedHex)

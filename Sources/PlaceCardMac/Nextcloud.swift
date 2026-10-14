@@ -120,14 +120,32 @@ import CardCore
         let candidates = NSRunningApplication.runningApplications(withBundleIdentifier: "com.brave.Browser")
         for app in candidates {
             // Chromium can withhold the editor's accessibility subtree while in the background.
-            // Activate before discovering it; keyboard input still requires the exact file and window.
-            app.activate(options: [])
-            try await pause(400)
+            // On macOS 14+, yield activation explicitly before asking another app to activate.
+            // Verify the handoff before discovering it; never type into an unfocused browser.
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+                NSApp.yieldActivation(to: app)
+                guard app.activate(options: []) else {
+                    throw CardError("macOS did not allow Brave to take focus. Click PlaceCard and retry.")
+                }
+                for _ in 0..<20 {
+                    try await pause(100)
+                    if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { break }
+                }
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+                    throw CardError("Brave did not take focus. Click PlaceCard and retry.")
+                }
+            }
+            try await pause(200)
             let root = AXUIElementCreateApplication(app.processIdentifier)
             _ = AXUIElementSetAttributeValue(root, "AXManualAccessibility" as CFString, kCFBooleanTrue)
             _ = AXUIElementSetAttributeValue(root, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
             try await pause(200)
-            let windows = attr(root, kAXWindowsAttribute) as? [AXUIElement] ?? []
+            var windowValue: CFTypeRef?
+            let windowAccess = AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowValue)
+            guard windowAccess == .success else {
+                throw CardError("macOS could not read Brave's windows. Refresh PlaceCard's Accessibility entry, then restart PlaceCard.")
+            }
+            let windows = windowValue as? [AXUIElement] ?? []
             for win in windows {
                 let nodes = descendants(win)
                 let tab = nodes.first(where: { e in
@@ -135,9 +153,8 @@ import CardCore
                     return (role == "AXRadioButton" || role == "AXTab") && title.contains(target.filename)
                 })
                 let workbookVisible = nodes.contains { string($0, kAXRoleAttribute) == "AXWebArea" && label($0).contains(target.filename) }
-                guard tab != nil || workbookVisible else { continue }
+                guard tab != nil || workbookVisible || label(win).contains(target.filename) else { continue }
                 browser = app; window = win
-                app.activate(options: [])
                 _ = AXUIElementPerformAction(win, kAXRaiseAction as CFString)
                 if let tab {
                     let pressed = AXUIElementPerformAction(tab, kAXPressAction as CFString)

@@ -21,7 +21,9 @@ public struct NumberTransform: Codable, Equatable {
         guard let resolved = source.resolved(for: card), var text = resolved.render(card) else {
             throw CardError(source == .automaticMifare
                 ? "Automatic Mifare supports four- and seven-byte Mifare cards. Choose another source for this card."
-                : "This source requires a seven-byte Mifare card.")
+                : source == .registerMifare
+                    ? "Register decimal supports four- and seven-byte Mifare cards."
+                    : "This source requires a seven-byte Mifare card.")
         }
         guard (0...64).contains(width) else { throw CardError("Minimum digits must be between 0 and 64.") }
         let isHex = resolved == .reportedHex || resolved == .reversedHex
