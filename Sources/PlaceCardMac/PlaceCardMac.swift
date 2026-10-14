@@ -97,6 +97,10 @@ enum Terminator: String, CaseIterable, Identifiable {
             guard !Task.isCancelled else { return }; self?.saveRecord()
         }
     }
+    private func clearRegistrationInput() {
+        pending = nil
+        printed = ""
+    }
     func checkWorkbook() {
         guard !cloudBusy else { return }
         cloudBusy = true; cloudStatus = "Reading existing records…"
@@ -105,6 +109,7 @@ enum Terminator: String, CaseIterable, Identifiable {
                 let records = try await writer().read()
                 if let existing = records.existingPrinted(printed), CardRegistry.validPrinted(printed) {
                     cloudStatus = "Printed number \(printed) already exists on row \(existing.row) (\(existing.card))."
+                    clearRegistrationInput()
                 } else { cloudStatus = "Checked \(records.entries.count) records. Next empty row: \(records.nextRow)." }
             }
             catch { cloudStatus = error.localizedDescription }
@@ -122,14 +127,15 @@ enum Terminator: String, CaseIterable, Identifiable {
         Task {
             do {
                 let row = try await writer().append(printed: digits, card: value)
-                self.pending = nil; printed = ""
+                clearRegistrationInput()
                 cloudStatus = "Added \(digits) → \(value) on row \(row). Save requested; check Nextcloud’s saved status."
                 appendLog("Nextcloud row \(row): \(digits) → \(value)")
             } catch {
                 cloudStatus = error.localizedDescription
-                // Re-presenting a card or editing the digits is required for another automatic attempt.
                 // Uncertain/partial writes are left visible and never overwritten or rolled back blindly.
-                if !cloudStatus.contains("already exists") { cloudEnabled = false }
+                if cloudStatus.contains("already exists") {
+                    clearRegistrationInput()
+                } else { cloudEnabled = false }
             }
             cloudBusy = false; NSApp.activate(ignoringOtherApps: true)
         }
@@ -207,6 +213,7 @@ enum Terminator: String, CaseIterable, Identifiable {
 
 struct PrintedNumberView: View {
     @Binding var value: String
+    var isBusy: Bool
     var submit: () -> Void
     @FocusState private var focused: Bool
     var body: some View {
@@ -227,6 +234,8 @@ struct PrintedNumberView: View {
                 .frame(width: 298, height: 82).focused($focused)
                 .accessibilityLabel("Four printed digits").onSubmit(submit)
         }.contentShape(Rectangle()).onTapGesture { focused = true }
+            .onAppear { focused = !isBusy }
+            .onChange(of: isBusy) { focused = !isBusy }
     }
 }
 struct MainView: View {
@@ -269,7 +278,7 @@ struct MainView: View {
                     HStack(spacing: 24) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("NUMBER PRINTED ON CARD").font(.caption.bold()).foregroundStyle(.secondary)
-                            PrintedNumberView(value: $model.printed) { model.saveRecord() }.disabled(model.cloudBusy)
+                            PrintedNumberView(value: $model.printed, isBusy: model.cloudBusy) { model.saveRecord() }.disabled(model.cloudBusy)
                         }
                         VStack(alignment: .leading, spacing: 8) {
                             Label(model.pending == nil ? "Scan a card" : "Card ready", systemImage: model.pending == nil ? "wave.3.right" : "checkmark.circle.fill")
