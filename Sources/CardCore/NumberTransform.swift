@@ -18,9 +18,13 @@ public struct NumberTransform: Codable, Equatable {
     public var width = 0
     public init() {}
     public func render(_ card: Card, source: OutputFormat) throws -> String {
-        guard var text = source.render(card) else { throw CardError("This source requires a seven-byte Mifare card.") }
+        guard let resolved = source.resolved(for: card), var text = resolved.render(card) else {
+            throw CardError(source == .automaticMifare
+                ? "Automatic Mifare supports four- and seven-byte Mifare cards. Choose another source for this card."
+                : "This source requires a seven-byte Mifare card.")
+        }
         guard (0...64).contains(width) else { throw CardError("Minimum digits must be between 0 and 64.") }
-        let isHex = source == .reportedHex || source == .reversedHex
+        let isHex = resolved == .reportedHex || resolved == .reversedHex
         let order = byteOrder.trimmingCharacters(in: .whitespacesAndNewlines)
         if !order.isEmpty {
             guard isHex else { throw CardError("Choose a hex source to rearrange its bytes.") }

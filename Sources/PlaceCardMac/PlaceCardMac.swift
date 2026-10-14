@@ -19,7 +19,7 @@ enum Terminator: String, CaseIterable, Identifiable {
     @Published var latest: Card?
     @Published var log: [String] = []
     @Published var transform = (UserDefaults.standard.data(forKey: "transform").flatMap { try? JSONDecoder().decode(NumberTransform.self, from: $0) } ?? NumberTransform()) {
-        didSet { typing = false; cloudEnabled = false; pending = nil; UserDefaults.standard.set(try? JSONEncoder().encode(transform), forKey: "transform") }
+        didSet { typing = false; cloudEnabled = false; pending = nil; if connected { status = "Connected" }; UserDefaults.standard.set(try? JSONEncoder().encode(transform), forKey: "transform") }
     }
     @Published var cloudEnabled = false {
         didSet { if cloudEnabled { typing = false; pending = nil; cloudStatus = "Ready. Scan a card and enter its four printed digits." }; debounce?.cancel() }
@@ -44,8 +44,15 @@ enum Terminator: String, CaseIterable, Identifiable {
         NextcloudWriter(target: try WorkbookTarget(rawURL: workbookURL, filename: workbookName))
     }
     private var debounce: Task<Void, Never>?
-    @Published var format = OutputFormat(rawValue: UserDefaults.standard.string(forKey: "format") ?? "") ?? .wiegand {
-        didSet { typing = false; cloudEnabled = false; pending = nil; UserDefaults.standard.set(format.rawValue, forKey: "format") }
+    @Published var format = OutputFormat(rawValue: UserDefaults.standard.string(forKey: "format") ?? "") ?? .automaticMifare {
+        didSet {
+            typing = false; cloudEnabled = false; pending = nil
+            // Selecting Auto starts with identity adjustments so a previously forced decimal
+            // output or padding cannot change a four-byte card's original hex identifier.
+            if format == .automaticMifare { transform = NumberTransform() }
+            if connected { status = "Connected" }
+            UserDefaults.standard.set(format.rawValue, forKey: "format")
+        }
     }
     @Published var ending = Terminator(rawValue: UserDefaults.standard.string(forKey: "ending") ?? "") ?? .none {
         didSet { typing = false; UserDefaults.standard.set(ending.rawValue, forKey: "ending") }
@@ -241,7 +248,7 @@ struct MainView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Last card").font(.caption).foregroundStyle(.secondary)
                 Text(model.preview).font(.system(size: 30, weight: .medium, design: .monospaced)).textSelection(.enabled)
-                if let card = model.latest { Text("\(card.kind) · Reader hex: \(card.reportedHex)").font(.caption).foregroundStyle(.secondary) }
+                if let card = model.latest { Text("\(card.kind) · \(card.reportedHex.count / 2)-byte · Reader hex: \(card.reportedHex)").font(.caption).foregroundStyle(.secondary) }
                 if let error = model.formatError { Text(error).font(.caption).foregroundStyle(.red) }
             }
             TabView {
@@ -280,7 +287,7 @@ struct MainView: View {
                     Picker("Source", selection: $model.format) { ForEach(OutputFormat.allCases) { Text($0.rawValue).tag($0) } }
                     Picker("Output", selection: $model.transform.notation) { ForEach(NumberNotation.allCases) { Text($0.rawValue).tag($0) } }
                     TextField("Byte positions", text: $model.transform.byteOrder, prompt: Text("1,2,3 or 3,2,1"))
-                    Text("Choose a hex source to select or rearrange bytes. Positions start at 1; leave blank to use all bytes.").font(.caption).foregroundStyle(.secondary)
+                    Text(model.format == .automaticMifare ? "Four-byte Mifare stays hex; seven-byte Mifare uses Windows decimal. No format switching needed." : "Choose a hex source to select or rearrange bytes. Positions start at 1; leave blank to use all bytes.").font(.caption).foregroundStyle(.secondary)
                     TextField("Calculation", text: $model.transform.expression, prompt: Text("x"))
                     Text("x is the source number. Use + − * / %, & | ^, << >>, ~ and parentheses. Example: (x & 0xFFFFFFFF) + 8. Integer arithmetic, up to 64 bits.").font(.caption).foregroundStyle(.secondary)
                     Stepper("Minimum digits: \(model.transform.width)", value: $model.transform.width, in: 0...64)

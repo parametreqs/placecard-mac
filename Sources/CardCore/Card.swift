@@ -31,14 +31,25 @@ public struct Card: Equatable {
     }
 }
 public enum OutputFormat: String, CaseIterable, Identifiable {
+    case automaticMifare = "Mifare: Auto (4-byte hex / 7-byte decimal)"
     case wiegand = "Wiegand: 000,00000"
     case decimal24 = "Wiegand: decimal (24 bits)"
     case windowsMifare = "Mifare 7-byte: Windows decimal"
     case reportedHex = "Hex: as reported by reader"
     case reversedHex = "Hex: reversed byte order"
     public var id: String { rawValue }
+    public func resolved(for card: Card) -> OutputFormat? {
+        guard self == .automaticMifare else { return self }
+        guard card.kind.lowercased().hasPrefix("mifare") else { return nil }
+        switch card.reportedHex.count {
+        case 8: return .reportedHex
+        case 14: return .windowsMifare
+        default: return nil
+        }
+    }
     public func render(_ card: Card) -> String? {
         switch self {
+        case .automaticMifare: return resolved(for: card)?.render(card)
         case .wiegand: return card.wiegand
         case .decimal24: return card.decimal24
         case .windowsMifare: return card.legacyMifareDecimal

@@ -18,21 +18,21 @@ Independent implementation; not an official IronLogic product or a recompiled Wi
 1. Download **PlaceCard-Mac-arm64.zip** from [Releases](https://github.com/parametreqs/placecard-mac/releases/latest), unzip it, and move **PlaceCard Mac.app** into Applications.
 2. Open the app. This community release is **ad-hoc signed and not notarized**. If macOS blocks it and you trust this project, use the app-specific **Open Anyway** option in System Settings → Privacy & Security, as described in [Apple's instructions](https://support.apple.com/en-us/102445). Managed Macs may prevent this.
 3. Connect the RD_ALL, select the reader or its `cu.usbserial…` port, and choose **Start reading**. Close other apps using the same reader first.
-4. Present a card and compare **Last card** with the desired Windows PlaceCard format. Open **Number format** to choose a source. For the legacy decimal output of a seven-byte Mifare card, choose **Mifare 7-byte: Windows decimal**.
+4. Present a card and compare **Last card** with the desired Windows PlaceCard format. Open **Number format** to choose a source. Choose **Mifare: Auto (4-byte hex / 7-byte decimal)** to alternate between four-byte hex and seven-byte Windows-compatible decimal without changing settings. The fixed **Mifare 7-byte: Windows decimal** source remains available.
 5. For typing, open **Typing**, choose **Enable Accessibility…** if required, and grant access to **PlaceCard Mac** in Privacy & Security → Accessibility. On the tested macOS 27 build this page is called **Device Control and Data Access**. Grant it only if you trust the app; it can send input to other apps.
 6. Enable **Type card numbers into the active app**, focus an editable note or another text field, then remove and present the card again.
 
-The default format is Wiegand `000,00000`. Typing and automatic saving start disabled. **After number** optionally sends Return or Tab. A held card produces one entry until removal or a different card is reported. Disconnects and format changes disable automatic entry. Reconnect and choose Start reading again when necessary.
+The default for new installations is **Mifare: Auto (4-byte hex / 7-byte decimal)**. Existing installations keep their chosen source; select Auto once after updating. Selecting Auto resets custom adjustments so four-byte IDs retain their original hex value. Typing and automatic saving start disabled. **After number** optionally sends Return or Tab. A held card produces one entry until removal or a different card is reported. Disconnects and format changes disable automatic entry. Reconnect and choose Start reading again when necessary.
 
 ## Number adjustments
 
-- Source: Wiegand facility/card, 24-bit Wiegand decimal, legacy seven-byte Mifare Windows decimal, reported hex, or reversed hex.
+- Source: automatic Mifare (four-byte reported hex; seven-byte Windows decimal), Wiegand facility/card, 24-bit Wiegand decimal, legacy seven-byte Mifare Windows decimal, reported hex, or reversed hex.
 - Output: keep the source notation, decimal, or uppercase hex.
 - Byte positions: choose a hex source and enter one-based positions, for example `7,6,5`. Positions refer to that source's displayed bytes. Blank uses all bytes.
 - Calculation: `x` is the selected source value. Supports parentheses, decimal and `0x` constants, `+ - * / %`, `& | ^`, `<< >>`, and unary `~`.
 - Minimum digits: add leading zeros; never truncate the result.
 
-Arithmetic is exact unsigned 64-bit integer arithmetic. Invalid expressions, division by zero, overflow/underflow, and shifts above 63 stop output. Raw hex without arithmetic can retain longer identifiers. Settings are remembered locally; the last card previews the result.
+Arithmetic is exact unsigned 64-bit integer arithmetic. Invalid expressions, division by zero, overflow/underflow, and shifts above 63 stop output. Raw hex without arithmetic can retain longer identifiers. Settings are remembered locally; the last card previews the result. In Auto, keep **Output: Keep source** and the identity adjustments to retain the automatic hex/decimal behavior. Deliberate custom adjustments apply after the per-card format selection.
 
 The legacy seven-byte Mifare format uses the RD_ALL terminal representation's last three hex bytes as UID0–UID2 and interprets `[0x88, UID0, UID1, UID2]` as a little-endian 32-bit number. For the synthetic bytes `01 02 03`, the output is `50463112`. The `0x88` cascade marker is documented by [NXP AN10927](https://www.nxp.com/docs/en/application-note/AN10927.pdf). This compatibility interpretation was checked against a Windows reading; it represents the first cascade, not the full seven-byte UID. Unsupported card types are rejected for this format.
 
